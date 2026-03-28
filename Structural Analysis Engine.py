@@ -72,7 +72,9 @@ def get_element_data(idx, XY, M, C):
     """
     Purpose: Computes local/global stiffness with precise theta transformation.
     Input: idx (int), XY (coordinates), M (material), C (connectivity).
-    Output: k_loc, R, k_glob.
+    Output: k_loc (6x6 local stiffness), R (6x6 rotation matrix), k_glob (6x6 global matrix).
+    Units: Length [m], Force [kN], Modulus [kPa].
+    Assumptions: Linear elastic material, Euler-Bernoulli beam theory, small deformations.
     """
     n1, n2 = int(C[idx][0]-1), int(C[idx][1]-1)
     mat_i = int(C[idx][2]-1)
