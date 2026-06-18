@@ -20,6 +20,7 @@ class Material:
     Assumptions: Linear-elastic and isotropic material.
     """
     def __init__(self, m_id, E, alpha_thermal):
+        # Input: m_id (identifier), E (Elastic Modulus), alpha_thermal (Coefficient of Thermal Expansion)
         self.id = m_id
         self.E = E                                      
         self.alpha_thermal = alpha_thermal              
@@ -29,6 +30,7 @@ class Section:
     Purpose: Defines geometric properties of the cross-section.
     """
     def __init__(self, s_id, area, inertia, depth):
+        # Input: s_id (identifier), area (Cross-sectional area), inertia (Moment of Inertia), depth (Section depth)
         self.id = s_id
         self.area = area        
         self.inertia = inertia  
@@ -38,6 +40,9 @@ class Section:
 # 2. NODES & BOUNDARY CONDITIONS
 # ==============================================================================
 class Support(ABC):
+    """
+    Purpose: Abstract base class for support conditions.
+    """
     def __init__(self, settlements=None):
         self.settlements = settlements if settlements else [0.0, 0.0, 0.0]
 
@@ -46,6 +51,10 @@ class Support(ABC):
         pass
 
 class ManualSupport(Support):
+    """
+    Purpose: Defines support conditions with explicit fixity vector.
+    Input: fixity (list of 1s and 0s for fixed/free DOFs), settlements (list of presribed displacements)
+    """
     def __init__(self, fixity, settlements=None):
         super().__init__(settlements)
         self.fixity = fixity  
@@ -54,6 +63,9 @@ class ManualSupport(Support):
         return self.fixity
 
 class Node:
+    """
+    Purpose: Represents a specific coordinate point in the structural model.
+    """
     def __init__(self, n_id, x, y, support=None):
         self.id = n_id
         self.x = x
@@ -65,6 +77,9 @@ class Node:
 # 3. FINITE ELEMENT MEMBERS
 # ==============================================================================
 class Member(ABC):
+    """
+    Purpose: Abstract base class for structural members connecting two nodes.
+    """
     def __init__(self, m_id, nodes, material, section, rs=0, re=0):
         self.id = m_id
         self.nodes = nodes
@@ -82,6 +97,10 @@ class Member(ABC):
         pass
 
     def get_transformation_matrix(self):
+        """
+        Purpose: Generates the transformation matrix for coordinate transformation.
+        Output: 6x6 numpy array.
+        """
         L = self.length
         sn, en = self.nodes[0], self.nodes[1]
         c = (en.x - sn.x) / L
@@ -96,6 +115,10 @@ class Member(ABC):
         ])
 
     def get_matrices(self):
+        """
+        Purpose: Retrieves local and global stiffness matrices along with transformation matrix.
+        Output: Tuple of (local stiffness, transformation matrix, global stiffness)
+        """
         kl = self.calculate_local_k()
         R  = self.get_transformation_matrix()
         kg = R.T @ kl @ R
@@ -106,14 +129,17 @@ class FrameMember(Member):
     Purpose: 2D Euler-Bernoulli frame element (3 DOF per node).
     """
     def calculate_local_k(self):
+        """
+        Purpose: Calculates the local stiffness matrix for a 2D frame element.
+        """
         L, E, A, I = (self.length, self.material.E, self.section.area, self.section.inertia)
         k = np.array([
-            [ E*A/L,   0,             0,           -E*A/L,  0,             0            ],
-            [ 0,       12*E*I/L**3,   6*E*I/L**2,  0,      -12*E*I/L**3,   6*E*I/L**2   ],
-            [ 0,       6*E*I/L**2,    4*E*I/L,     0,      -6*E*I/L**2,    2*E*I/L      ],
-            [-E*A/L,   0,             0,            E*A/L,  0,             0            ],
-            [ 0,      -12*E*I/L**3,  -6*E*I/L**2,  0,       12*E*I/L**3,  -6*E*I/L**2   ],
-            [ 0,       6*E*I/L**2,    2*E*I/L,     0,      -6*E*I/L**2,    4*E*I/L      ]
+            [ E*A/L,   0,            0,           -E*A/L,  0,            0            ],
+            [ 0,       12*E*I/L**3,  6*E*I/L**2,  0,      -12*E*I/L**3,  6*E*I/L**2   ],
+            [ 0,       6*E*I/L**2,   4*E*I/L,     0,      -6*E*I/L**2,   2*E*I/L      ],
+            [-E*A/L,   0,            0,           E*A/L,   0,            0            ],
+            [ 0,      -12*E*I/L**3, -6*E*I/L**2,  0,       12*E*I/L**3, -6*E*I/L**2   ],
+            [ 0,       6*E*I/L**2,   2*E*I/L,     0,      -6*E*I/L**2,   4*E*I/L      ]
         ])
         if self.rs == 1: k[2, :] = k[:, 2] = 0
         if self.re == 1: k[5, :] = k[:, 5] = 0
@@ -128,6 +154,9 @@ class Load(ABC):
         pass
 
 class NodalLoad(Load):
+    """
+    Purpose: Represents a concentrated force/moment applied directly to a node.
+    """
     def __init__(self, node_id, fx, fy, mz):
         self.node_id = node_id
         self.forces = np.array([fx, fy, mz])
@@ -137,6 +166,9 @@ class MemberLoad(Load, ABC):
     def __init__(self, member_id): self.member_id = member_id
 
 class DistributedLoad(MemberLoad):
+    """
+    Purpose: Represents a uniformly distributed vertical load on a member.
+    """
     def __init__(self, member_id, w):
         super().__init__(member_id)
         self.w = w
@@ -147,6 +179,7 @@ class DistributedLoad(MemberLoad):
 class MemberThermalLoad(MemberLoad):
     """
     Purpose: Computes fixed-end forces due to uniform temperature and thermal gradient.
+    Assumptions: Linear temperature gradient through the depth.
     """
     def __init__(self, member_id, tu, tb):
         super().__init__(member_id)
@@ -162,6 +195,9 @@ class MemberThermalLoad(MemberLoad):
         return np.array([-f_axial, 0, -m_grad, f_axial, 0, m_grad])
 
 class MemberPointLoad(MemberLoad):
+    """
+    Purpose: Computes fixed-end forces for a concentrated load on a member span.
+    """
     def __init__(self, member_id, p, a, h_force=0.0):
         super().__init__(member_id)
         self.p = p             
@@ -186,6 +222,7 @@ class StructuralModel:
     """
     Purpose: Assembles the global stiffness matrix and solves [K]{U} = {F}
     using the Direct Stiffness Method (DSM).
+    Assumptions: Linear structural behavior, small deformations.
     """
     def __init__(self):
         self.nodes = {}
@@ -210,6 +247,11 @@ class StructuralModel:
         return None
 
     def solve(self, apply_settlements=True):
+        """
+        Purpose: Assembles load vector, applies boundary conditions, solves for displacements.
+        Input: apply_settlements (bool) indicating whether to include prescribed settlements.
+        Output: Dictionary mapping member IDs to their 6 internal forces.
+        """
         node_ids = sorted(self.nodes.keys())
         if not node_ids: return None
 
@@ -300,6 +342,9 @@ class StructuralModel:
         return self.member_forces
 
 class EnvelopeTracker:
+    """
+    Purpose: Tracks the maximum and minimum envelope forces for multiple load steps.
+    """
     def __init__(self, member_ids):
         self.max_envelope = {mid: np.full(6, -1e12) for mid in member_ids}
         self.min_envelope = {mid: np.full(6, 1e12) for mid in member_ids}
@@ -314,6 +359,10 @@ class EnvelopeTracker:
 # 9. TIME-STEP ORCHESTRATOR
 # ==============================================================================
 class TimeStepOrchestrator:
+    """
+    Purpose: Manages sequential load cases including dead, thermal, settlement, 
+             and moving train loads.
+    """
     def __init__(self, config_dict, progress_callback=None):
         self.cfg = config_dict
         self.progress_callback = progress_callback
@@ -328,6 +377,9 @@ class TimeStepOrchestrator:
         self.live_uy_min = None
 
     def _assemble_mesh(self):
+        """
+        Purpose: Generates members and nodes based on the geometry dictionary.
+        """
         self.model.clear_cache()  
         geom = self.cfg["geom"]
         sec = self.cfg["section"]
@@ -355,6 +407,9 @@ class TimeStepOrchestrator:
             self.model.members.append(FrameMember(i + 1, [n1, n2], mat_obj, sec_obj))
 
     def _inject_permanent_loads(self):
+        """
+        Purpose: Adds self-weight and externally defined distributed/point static loads.
+        """
         if self.cfg["section"]["sw_flag"] == 1:
             sw_mag = self.cfg["section"]["A"] * self.cfg["section"]["gamma"]
             for m in self.model.members: self.model.loads.append(DistributedLoad(m.id, sw_mag))
@@ -396,6 +451,9 @@ class TimeStepOrchestrator:
         return res
 
     def execute_simulation_march(self):
+        """
+        Purpose: Advances moving train loads step-by-step and extracts force envelopes.
+        """
         total_L = self.cfg["geom"]["total_L"]
         dx_step = self.cfg["sim"]["dx"]
         axles = self.cfg["sim"]["loads"]
@@ -451,6 +509,9 @@ class TimeStepOrchestrator:
 # VISUALIZER
 # ==============================================================================
 class PostProcessVisualizer:
+    """
+    Purpose: Provides static methods for generating analysis result plots.
+    """
     @staticmethod
     def plot_schematic_model(data_deck):
         spans = data_deck["geom"]["span_lengths"]
@@ -755,6 +816,11 @@ def create_disp_dataframe(model, disp_array):
 # GUI APPLICATION (TKINTER)
 # ==============================================================================
 class BridgeGUI:
+    """
+    Purpose: Provides the graphical user interface for the analysis engine.
+    Input: User-defined parameters via Tkinter widgets.
+    Output: Modifies and initiates the backend process to yield structural responses.
+    """
     def __init__(self, root):
         self.root = root
         self.root.title("CE 4011 - Structural Computational Engine")
@@ -774,11 +840,14 @@ class BridgeGUI:
         self._set_default_values() 
         
     def _display_df_to_frame(self, frame, df):
-        """Displays DataFrame content as a scrollable table in the UI."""
+        """
+        Purpose: Displays the DataFrame content in a Treeview table.
+        Input: Tkinter Frame and a Pandas DataFrame.
+        """
         for widget in frame.winfo_children(): widget.destroy()
         if df is None: return
 
-        # Scrollbars
+        # Add scrollbars so the table is scrollable if large
         x_scroll = ttk.Scrollbar(frame, orient=tk.HORIZONTAL)
         y_scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL)
         
@@ -786,6 +855,7 @@ class BridgeGUI:
         tree = ttk.Treeview(frame, show='headings', 
                             xscrollcommand=x_scroll.set, yscrollcommand=y_scroll.set)
         
+        # Configure columns
         df_reset = df.reset_index()
         tree["columns"] = list(df_reset.columns)
         
@@ -793,6 +863,7 @@ class BridgeGUI:
             tree.heading(col, text=col)
             tree.column(col, width=100)
             
+        # Populate data
         for _, row in df_reset.iterrows():
             tree.insert("", "end", values=list(row))
             
@@ -1115,35 +1186,6 @@ class BridgeGUI:
         canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         plt.close(fig) 
 
-    def _display_df_to_frame(self, frame, df):
-        """Dataframe'i bir Treeview tablosuna basar."""
-        for widget in frame.winfo_children(): widget.destroy()
-        if df is None: return
-
-        # Scrollbar ekle (Tablo büyükse kaydırabilsin)
-        x_scroll = ttk.Scrollbar(frame, orient=tk.HORIZONTAL)
-        y_scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL)
-        
-        tree = ttk.Treeview(frame, show='headings', xscrollcommand=x_scroll.set, yscrollcommand=y_scroll.set)
-        
-        # Sütunları ayarla
-        df_reset = df.reset_index()
-        tree["columns"] = list(df_reset.columns)
-        for col in df_reset.columns:
-            tree.heading(col, text=col)
-            tree.column(col, width=80)
-            
-        # Verileri doldur
-        for _, row in df_reset.iterrows():
-            tree.insert("", "end", values=list(row))
-            
-        x_scroll.config(command=tree.xview)
-        y_scroll.config(command=tree.yview)
-        
-        x_scroll.pack(side=tk.BOTTOM, fill=tk.X)
-        y_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        tree.pack(fill=tk.BOTH, expand=True)
-
     def schedule_preview_update(self):
         if self.preview_timer:
             self.root.after_cancel(self.preview_timer)
@@ -1258,14 +1300,14 @@ class BridgeGUI:
             self.root.after(0, self.embed_plot, PostProcessVisualizer.plot_single_case_deflection(orch.model, orch.dead_load_displacements, support_locs, "DEAD LOAD"), self.frames["DEAD"]["deflections"]["plot"])
             
             self.root.after(0, self.embed_plot, PostProcessVisualizer.plot_single_case_forces(orch.model, res_thermal, support_locs, "THERMAL LOAD"), self.frames["THERMAL"]["forces"]["plot"])
-            # Termal yükün deplasman grafiğini çizdirirken direction="x" parametresini ekliyoruz
+            # We add the direction="x" parameter when plotting the displacement graph of the thermal load
             self.root.after(0, self.embed_plot, PostProcessVisualizer.plot_single_case_deflection(
                 orch.model, 
                 orch.thermal_displacements, 
                 support_locs, 
                 "THERMAL LOAD", 
                 line_color="orange", 
-                direction="x"  # İŞTE BU KISIM DÜZELTİLDİ
+                direction="x"  # THIS PART WAS CORRECTED
             ), self.frames["THERMAL"]["deflections"]["plot"])
             
             self.root.after(0, self.embed_plot, PostProcessVisualizer.plot_single_case_forces(orch.model, res_settlement, support_locs, "SETTLEMENT"), self.frames["SETTLEMENT"]["forces"]["plot"])
@@ -1286,33 +1328,6 @@ class BridgeGUI:
                                         self.status_label.config(text="Status: Error encountered.")])
             messagebox.showerror("Execution Error", f"An error occurred:\n{str(e)}")
     
-    def _display_df_to_frame(self, frame, df):
-        """Displays DataFrame content as a scrollable spreadsheet in the UI."""
-        for widget in frame.winfo_children(): widget.destroy()
-        
-        # Scrollbars
-        x_scroll = ttk.Scrollbar(frame, orient=tk.HORIZONTAL)
-        y_scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL)
-        
-        tree = ttk.Treeview(frame, show='headings', 
-                            xscrollcommand=x_scroll.set, yscrollcommand=y_scroll.set)
-        
-        df_reset = df.reset_index()
-        tree["columns"] = list(df_reset.columns)
-        
-        for col in df_reset.columns:
-            tree.heading(col, text=col)
-            tree.column(col, width=80) # Sütun genişliği
-            
-        for _, row in df_reset.iterrows():
-            tree.insert("", "end", values=[f"{val:.4f}" if isinstance(val, (int, float)) else val for val in row])
-            
-        x_scroll.config(command=tree.xview)
-        y_scroll.config(command=tree.yview)
-        x_scroll.pack(side=tk.BOTTOM, fill=tk.X)
-        y_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        tree.pack(fill=tk.BOTH, expand=True)
-
     def reset_all_inputs(self):
         """Clears all input fields to default states."""
         # 1. Clear Spans
@@ -1338,8 +1353,8 @@ class BridgeGUI:
     def load_defaults_command(self):
         """Resets all fields to preset engineering defaults."""
         if messagebox.askyesno("Load Defaults", "Are you sure you want to reset all parameters to defaults?"):
-            self._set_default_values() # Mevcut varsayılanları yükler
-            self.refresh_model_view_silent() # Arayüzü güncelle
+            self._set_default_values() # Loads current defaults
+            self.refresh_model_view_silent() # Update the interface
             self.status_label.config(text="Status: Default parameters loaded.")
     
     def define_new_geometry(self):
@@ -1347,8 +1362,6 @@ class BridgeGUI:
         if messagebox.askyesno("New Design", "Are you sure you want to clear everything and start a new design?"):
             # 1. Clear Inputs
             self.reset_all_inputs()
-            # 2. Clear Tables and Plots
-            self.reset_ui_state()
             # 3. Activate Run Analysis Button
             self.btn_run.config(state=tk.NORMAL)
             self.status_label.config(text="Status: Ready for new design.")
